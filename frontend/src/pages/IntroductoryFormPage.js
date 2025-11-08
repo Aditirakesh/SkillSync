@@ -1,49 +1,128 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-// Import our new stepper component
 import AssessmentStepper from '../components/AssessmentStepper';
+import { State, City } from 'country-state-city';
+
+// A list of major countries with their ISO codes
+const majorCountries = [
+  { name: 'Select your country', isoCode: '' }, 
+  { name: 'India', isoCode: 'IN' },
+  { name: 'United States', isoCode: 'US' },
+  { name: 'United Kingdom', isoCode: 'GB' },
+  { name: 'Canada', isoCode: 'CA' },
+  { name: 'Australia', isoCode: 'AU' },
+  { name: 'Germany', isoCode: 'DE' },
+  { name: 'France', isoCode: 'FR' },
+  { name: 'Japan', isoCode: 'JP' },
+  { name: 'China', isoCode: 'CN' },
+  { name: 'Brazil', isoCode: 'BR' },
+];
 
 function IntroductoryFormPage() {
   const { user, updateProfile } = useAuth();
   const navigate = useNavigate();
-  
-  // New form state based on your screenshots
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     age: '',
-    gender: 'Prefer not to say', // Default value
+    gender: 'Prefer not to say',
     education_level: '',
-    country: '',
+    country: '', // Default to empty
     state: '',
     city: '',
   });
 
+  const [states, setStates] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [selectedStateCode, setSelectedStateCode] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Pre-fill form with user data if it exists from context/localStorage
+  // --- THIS LOGIC IS NOW FIXED ---
+
+  // Effect 1: Load states ONLY if India is selected
+  useEffect(() => {
+    if (formData.country === 'India') {
+      setStates(State.getStatesOfCountry('IN'));
+    } else {
+      setStates([]); // Clear states if country is not India
+    }
+  }, [formData.country]); // Correct: Only depends on country
+
+  // Effect 2: Pre-fill the form ONCE when user data loads
   useEffect(() => {
     if (user) {
       setFormData(prev => ({
         ...prev,
-        // Split 'name' back into first/last if it exists
         firstName: user.firstName || (user.name ? user.name.split(' ')[0] : ''),
         lastName: user.lastName || (user.name ? user.name.split(' ').slice(1).join(' ') : ''),
         age: user.age || '',
         gender: user.gender || 'Prefer not to say',
         education_level: user.education_level || '',
-        country: user.country || 'India', // Set a default
-        state: user.state || '',
-        city: user.city || '',
+        country: user.country || '', // Pre-fill country
+        state: user.state || '',   // Pre-fill state text
+        city: user.city || '',   // Pre-fill city text
       }));
+      // This will trigger Effect 1 if user.country is 'India'
     }
-  }, [user]); // Re-run when user object is loaded
+  }, [user]); // Correct: Only depends on the user object
 
+  // Effect 3: Pre-select dropdowns if the pre-filled country was India
+  useEffect(() => {
+    // Only run if country is India, states are loaded, and a state name exists
+    if (formData.country === 'India' && states.length > 0 && formData.state) {
+      const userState = states.find(s => s.name === formData.state);
+      if (userState) {
+        const stateCode = userState.isoCode;
+        setSelectedStateCode(stateCode);
+        setCities(City.getCitiesOfState('IN', stateCode));
+        // formData.city is already set, so city dropdown will pre-select
+      }
+    }
+    // We add formData.state as a dependency to run this *after* Effect 2 finishes
+  }, [states, formData.state, formData.country]); 
+
+  // --- END OF FIXED LOGIC ---
+
+
+  // Generic handler for most inputs (now handles text state/city)
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+
+  // Handler for the COUNTRY dropdown
+  const handleCountryChange = (e) => {
+    const countryName = e.target.value;
+    
+    // Reset all location fields when country changes
+    setFormData({
+      ...formData,
+      country: countryName,
+      state: '', 
+      city: '',
+    });
+    setSelectedStateCode('');
+    setCities([]);
+  };
+
+  // Handler for the (India-only) STATE dropdown
+  const handleStateChange = (e) => {
+    const stateIsoCode = e.target.value;
+    setSelectedStateCode(stateIsoCode);
+    
+    const stateObj = states.find(s => s.isoCode === stateIsoCode);
+    setCities(City.getCitiesOfState('IN', stateIsoCode));
+    
+    setFormData({
+      ...formData,
+      state: stateObj ? stateObj.name : '',
+      city: '', // Reset city when state changes
+    });
+  };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -51,18 +130,14 @@ function IntroductoryFormPage() {
     setLoading(true);
 
     try {
-      // Prepare the data for our updateProfile function
       const profileData = {
         ...formData,
-        // Combine first/last into 'name' for the backend
         name: `${formData.firstName} ${formData.lastName}`.trim(),
         age: Number(formData.age) || null,
       };
-
-      // Send all data. The updated AuthContext function will handle it.
+      
       await updateProfile(profileData);
       
-      // On success, navigate to the next step
       navigate('/career-assessment'); 
 
     } catch (err) {
@@ -72,15 +147,12 @@ function IntroductoryFormPage() {
     }
   };
   
-  // Reusable input/select field style
   const inputStyle = "relative block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400";
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      {/* --- ADD THE STEPPER --- */}
       <AssessmentStepper currentStep={1} />
-    
-      {/* --- Main Form Card --- */}
+      
       <div className="rounded-lg bg-white p-8 shadow-lg dark:bg-gray-800">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
           Personal Information
@@ -93,24 +165,24 @@ function IntroductoryFormPage() {
         <form onSubmit={handleSubmit} className="mt-8">
           {error && <div className="mb-4 rounded-md border border-red-400 bg-red-100 p-3 text-sm text-red-700 dark:bg-red-200">{error}</div>}
           
-          {/* Form fields in a grid */}
           <div className="grid grid-cols-1 gap-x-6 gap-y-6 sm:grid-cols-2">
+            {/* --- Unchanged Fields --- */}
             <div>
               <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300">First Name</label>
               <input type="text" name="firstName" id="firstName" required className={inputStyle}
-                      value={formData.firstName} onChange={handleChange} />
+                     value={formData.firstName} onChange={handleChange} />
             </div>
 
             <div>
               <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Last Name</label>
               <input type="text" name="lastName" id="lastName" required className={inputStyle}
-                      value={formData.lastName} onChange={handleChange} />
+                     value={formData.lastName} onChange={handleChange} />
             </div>
 
             <div>
               <label htmlFor="age" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Age</label>
               <input type="number" name="age" id="age" required className={inputStyle}
-                      value={formData.age} onChange={handleChange} />
+                     value={formData.age} onChange={handleChange} />
             </div>
 
             <div>
@@ -138,27 +210,101 @@ function IntroductoryFormPage() {
               </select>
             </div>
 
+            {/* --- Country --- */}
             <div>
               <label htmlFor="country" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Country</label>
-              <input type="text" name="country" id="country" required className={inputStyle}
-                      value={formData.country} onChange={handleChange} />
+              <select 
+                id="country" 
+                name="country" 
+                required 
+                className={inputStyle}
+                value={formData.country} // Value is the country NAME
+                onChange={handleCountryChange}
+              >
+                {majorCountries.map((country) => (
+                  <option 
+                    key={country.isoCode} 
+                    value={country.isoCode === '' ? '' : country.name} // Use "" for placeholder
+                    disabled={country.isoCode === ''}
+                  >
+                    {country.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
+            {/* --- State (Conditional) --- */}
             <div>
               <label htmlFor="state" className="block text-sm font-medium text-gray-700 dark:text-gray-300">State / Province</label>
-              <input type="text" name="state" id="state" required className={inputStyle}
-                      value={formData.state} onChange={handleChange} />
+              {formData.country === 'India' ? (
+                // --- RENDER DROPDOWN FOR INDIA ---
+                <select 
+                  id="state" 
+                  name="state" 
+                  required 
+                  className={inputStyle}
+                  value={selectedStateCode} // The value is the ISO code
+                  onChange={handleStateChange}
+                >
+                  <option value="" disabled>Select your state</option>
+                  {states.map((state) => (
+                    <option key={state.isoCode} value={state.isoCode}>
+                      {state.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                // --- RENDER TEXT INPUT FOR OTHER COUNTRIES ---
+                <input
+                  type="text"
+                  name="state"
+                  id="state"
+                  required
+                  className={inputStyle}
+                  value={formData.state} // Value is the text name
+                  onChange={handleChange}
+                />
+              )}
             </div>
 
+            {/* --- City (Conditional) --- */}
             <div className="sm:col-span-2">
               <label htmlFor="city" className="block text-sm font-medium text-gray-700 dark:text-gray-300">City</label>
-
-              <input type="text" name="city" id="city" required className={inputStyle}
-                      value={formData.city} onChange={handleChange} />
+              {formData.country === 'India' ? (
+                // --- RENDER DROPDOWN FOR INDIA ---
+                <select 
+                  id="city" 
+                  name="city" 
+                  required 
+                  className={inputStyle}
+                  value={formData.city} // The value is the city name
+                  onChange={handleChange}
+                  disabled={cities.length === 0} 
+                >
+                  <option value="" disabled>
+                    {selectedStateCode ? 'Select your city' : 'Please select a state first'}
+                  </option>
+                  {cities.map((city) => (
+                    <option key={city.name} value={city.name}>
+                      {city.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                // --- RENDER TEXT INPUT FOR OTHER COUNTRIES ---
+                <input
+                  type="text"
+                  name="city"
+                  id="city"
+                  required
+                  className={inputStyle}
+                  value={formData.city} // Value is the text name
+                  onChange={handleChange}
+                />
+              )}
             </div>
           </div>
           
-          {/* Next Button */}
           <div className="mt-8 flex justify-end">
             <button
               type="submit"
